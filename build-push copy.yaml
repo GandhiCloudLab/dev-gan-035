@@ -1,0 +1,122 @@
+apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  generation: 1
+  labels:
+    version: 1.2.0
+  name: igc-build-tag-push-v1-2-0
+  namespace: dev-gan2
+spec:
+  inputs:
+    params:
+    - default: docker.io/node:12-stretch
+      name: js-image
+      type: string
+    - default: quay.io/buildah/stable:v1.11.0
+      name: BUILDER_IMAGE
+      type: string
+    - default: docker.io/aquasec/trivy
+      name: trivy
+      type: string      
+    - default: ./Dockerfile
+      name: DOCKERFILE
+      type: string
+    - default: .
+      name: CONTEXT
+      type: string
+    - default: "false"
+      name: TLSVERIFY
+      type: string
+    resources:
+    - name: source
+      type: git
+  outputs:
+    resources:
+    - name: image
+      type: image
+  steps:
+  - args:
+    - -c
+    - |
+      set -e
+
+      if [[ -z "$GIT_AUTH_USER" ]] || [[ -z "$GIT_AUTH_PWD" ]]; then
+        echo "Git credentials not found. The pipeline expects to find them in a secret named 'git-credentials'."
+        echo "  Update your CLI and register the pipeline again"
+        exit 1
+      fi
+
+      echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
+      git fetch --unshallow
+      git fetch --tags
+      git tag -l
+
+      git checkout ${BRANCH}
+      git branch --set-upstream-to=origin/${BRANCH} ${BRANCH}
+
+      git config --global user.email "cloud-native-toolkit@example.com"
+      git config --global user.name "Cloud Native Toolkit Pipeline"
+
+      if [[ "${BRANCH}" == "master" ]] && [[ $(git describe --tag `git rev-parse HEAD`) =~ (^[0-9]+.[0-9]+.[0-9]+$) ]] || \
+         [[ $(git describe --tag `git rev-parse HEAD`) =~ (^[0-9]+.[0-9]+.[0-9]+-${BRANCH}[.][0-9]+$) ]]
+      then
+          echo "Latest commit is already tagged"
+          echo "IMAGE_NAME=$(basename -s .git `git config --get remote.origin.url` | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g')" > ./env-config
+          echo "IMAGE_VERSION=$(git describe --abbrev=0 --tags)" >> ./env-config
+          exit 0
+      fi
+
+      mkdir -p ~/.npm
+      npm config set prefix ~/.npm
+      export PATH=$PATH:~/.npm/bin
+      npm i -g release-it
+
+      if [[ "${BRANCH}" != "master" ]]; then
+          PRE_RELEASE="--preRelease=${BRANCH}"
+      fi
+
+
+      release-it patch ${PRE_RELEASE} \
+        --ci \
+        --no-npm \
+        --no-git.push \
+        --no-git.requireCleanWorkingDir \
+        --verbose \
+        -VV
+
+      git push --follow-tags -v
+
+      echo "IMAGE_VERSION=$(git describe --abbrev=0 --tags)" > ./env-config
+      echo "IMAGE_NAME=$(basename -s .git `git config --get remote.origin.url` | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g')" >> ./env-config
+
+      source ./env-config
+      if [[ -z "${IMAGE_VERSION}" ]]; then
+          echo "Error: IMAGE_VERSION not defined"
+          exit 1
+      fi
+      if [[ -z "${IMAGE_NAME}" ]]; then
+          echo "Error: IMAGE_NAME not defined"
+          exit 1
+      fi
+    command:
+    - /bin/bash
+    env:
+    - name: BRANCH
+      value: $(inputs.resources.source.revision)
+    - name: GIT_AUTH_USER
+      valueFrom:
+        secretKeyRef:
+          key: username
+          name: git-credentials
+          optional: true
+    - name: GIT_AUTH_PWD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: git-credentials
+          optional: true
+    image: $(inputs.params.js-image)
+    name: tag-release
+    resources: {}
+    workingDir: $(inputs.resources.source.path)
+

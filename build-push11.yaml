@@ -1,0 +1,171 @@
+apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"tekton.dev/v1alpha1","kind":"Task","metadata":{"annotations":{},"labels":{"version":"1.2.0"},"name":"igc-build-tag-push-v1-2-0","namespace":"tools"},"spec":{"inputs":{"params":[{"default":"docker.io/node:12-stretch","name":"js-image"},{"default":"quay.io/buildah/stable:v1.11.0","name":"BUILDER_IMAGE"},{"default":"./Dockerfile","name":"DOCKERFILE"},{"default":".","name":"CONTEXT"},{"default":"false","name":"TLSVERIFY"}],"resources":[{"name":"source","type":"git"}]},"outputs":{"resources":[{"name":"image","type":"image"}]},"steps":[{"args":["-c","set -e\n\nif [[ -z \"$GIT_AUTH_USER\" ]] || [[ -z \"$GIT_AUTH_PWD\" ]]; then\n  echo \"Git credentials not found. The pipeline expects to find them in a secret named 'git-credentials'.\"\n  echo \"  Update your CLI and register the pipeline again\"\n  exit 1\nfi\n\necho \"Current branch: $(git rev-parse --abbrev-ref HEAD)\"\ngit fetch --unshallow\ngit fetch --tags\ngit tag -l\n\ngit checkout ${BRANCH}\ngit branch --set-upstream-to=origin/${BRANCH} ${BRANCH}\n\ngit config --global user.email \"cloud-native-toolkit@example.com\"\ngit config --global user.name \"Cloud Native Toolkit Pipeline\"\n\nif [[ \"${BRANCH}\" == \"master\" ]] \u0026\u0026 [[ $(git describe --tag `git rev-parse HEAD`) =~ (^[0-9]+.[0-9]+.[0-9]+$) ]] || \\\n   [[ $(git describe --tag `git rev-parse HEAD`) =~ (^[0-9]+.[0-9]+.[0-9]+-${BRANCH}[.][0-9]+$) ]]\nthen\n    echo \"Latest commit is already tagged\"\n    echo \"IMAGE_NAME=$(basename -s .git `git config --get remote.origin.url` | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g')\" \u003e ./env-config\n    echo \"IMAGE_VERSION=$(git describe --abbrev=0 --tags)\" \u003e\u003e ./env-config\n    exit 0\nfi\n\nmkdir -p ~/.npm\nnpm config set prefix ~/.npm\nexport PATH=$PATH:~/.npm/bin\nnpm i -g release-it\n\nif [[ \"${BRANCH}\" != \"master\" ]]; then\n    PRE_RELEASE=\"--preRelease=${BRANCH}\"\nfi\n\n\nrelease-it patch ${PRE_RELEASE} \\\n  --ci \\\n  --no-npm \\\n  --no-git.push \\\n  --no-git.requireCleanWorkingDir \\\n  --verbose \\\n  -VV\n\ngit push --follow-tags -v\n\necho \"IMAGE_VERSION=$(git describe --abbrev=0 --tags)\" \u003e ./env-config\necho \"IMAGE_NAME=$(basename -s .git `git config --get remote.origin.url` | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g')\" \u003e\u003e ./env-config\n\nsource ./env-config\nif [[ -z \"${IMAGE_VERSION}\" ]]; then\n    echo \"Error: IMAGE_VERSION not defined\"\n    exit 1\nfi\nif [[ -z \"${IMAGE_NAME}\" ]]; then\n    echo \"Error: IMAGE_NAME not defined\"\n    exit 1\nfi\n"],"command":["/bin/bash"],"env":[{"name":"BRANCH","value":"$(inputs.resources.source.revision)"},{"name":"GIT_AUTH_USER","valueFrom":{"secretKeyRef":{"key":"username","name":"git-credentials","optional":true}}},{"name":"GIT_AUTH_PWD","valueFrom":{"secretKeyRef":{"key":"password","name":"git-credentials","optional":true}}}],"image":"$(inputs.params.js-image)","name":"tag-release","workingdir":"$(inputs.resources.source.path)"},{"args":["-c","set -e\n\n. ./env-config\n\nIMAGE_URL=$(outputs.resources.image.url)\n\nREGISTRY_URL=$(echo $IMAGE_URL | awk -F / '{print $1}')\nREGISTRY_NAMESPACE=$(echo $IMAGE_URL | awk -F / '{print $2}')\n\nAPP_IMAGE=\"${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_VERSION}\"\n\nbuildah bud --tls-verify=$(inputs.params.TLSVERIFY) --format=docker -f $(inputs.params.DOCKERFILE) -t ${APP_IMAGE}  $(inputs.params.CONTEXT)\nif [[ -n \"${REGISTRY_USER}\" ]] \u0026\u0026 [[ -n \"${REGISTRY_PASSWORD}\" ]]; then\n  buildah login -u \"${REGISTRY_USER}\" -p \"${REGISTRY_PASSWORD}\" \"${REGISTRY_URL}\"\nfi\nbuildah push --tls-verify=$(inputs.params.TLSVERIFY) \"${APP_IMAGE}\" \"docker://${APP_IMAGE}\"\n"],"command":["/bin/bash"],"env":[{"name":"REGISTRY_USER","valueFrom":{"secretKeyRef":{"key":"REGISTRY_USER","name":"ibmcloud-apikey","optional":true}}},{"name":"REGISTRY_PASSWORD","valueFrom":{"secretKeyRef":{"key":"APIKEY","name":"ibmcloud-apikey","optional":true}}}],"image":"$(inputs.params.BUILDER_IMAGE)","name":"build","securityContext":{"privileged":true},"volumeMounts":[{"mountPath":"/var/lib/containers","name":"varlibcontainers"}],"workingdir":"$(inputs.resources.source.path)"}],"volumes":[{"emptyDir":{},"name":"varlibcontainers"}]}}
+  creationTimestamp: "2020-05-10T14:21:00Z"
+  generation: 1
+  labels:
+    version: 1.2.0
+  name: igc-build-tag-push-v1-2-0
+  namespace: dev-gan2
+  resourceVersion: "8509436"
+  selfLink: /apis/tekton.dev/v1alpha1/namespaces/dev-gan2/tasks/igc-build-tag-push-v1-2-0
+  uid: 504dd8d9-5f77-4784-8f31-997f3ebad267
+spec:
+  inputs:
+    params:
+    - default: docker.io/node:12-stretch
+      name: js-image
+      type: string
+    - default: quay.io/buildah/stable:v1.11.0
+      name: BUILDER_IMAGE
+      type: string
+    - default: ./Dockerfile
+      name: DOCKERFILE
+      type: string
+    - default: .
+      name: CONTEXT
+      type: string
+    - default: "false"
+      name: TLSVERIFY
+      type: string
+    resources:
+    - name: source
+      type: git
+  outputs:
+    resources:
+    - name: image
+      type: image
+  steps:
+  - args:
+    - -c
+    - |
+      set -e
+
+      if [[ -z "$GIT_AUTH_USER" ]] || [[ -z "$GIT_AUTH_PWD" ]]; then
+        echo "Git credentials not found. The pipeline expects to find them in a secret named 'git-credentials'."
+        echo "  Update your CLI and register the pipeline again"
+        exit 1
+      fi
+
+      echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
+      git fetch --unshallow
+      git fetch --tags
+      git tag -l
+
+      git checkout ${BRANCH}
+      git branch --set-upstream-to=origin/${BRANCH} ${BRANCH}
+
+      git config --global user.email "cloud-native-toolkit@example.com"
+      git config --global user.name "Cloud Native Toolkit Pipeline"
+
+      if [[ "${BRANCH}" == "master" ]] && [[ $(git describe --tag `git rev-parse HEAD`) =~ (^[0-9]+.[0-9]+.[0-9]+$) ]] || \
+         [[ $(git describe --tag `git rev-parse HEAD`) =~ (^[0-9]+.[0-9]+.[0-9]+-${BRANCH}[.][0-9]+$) ]]
+      then
+          echo "Latest commit is already tagged"
+          echo "IMAGE_NAME=$(basename -s .git `git config --get remote.origin.url` | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g')" > ./env-config
+          echo "IMAGE_VERSION=$(git describe --abbrev=0 --tags)" >> ./env-config
+          exit 0
+      fi
+
+      mkdir -p ~/.npm
+      npm config set prefix ~/.npm
+      export PATH=$PATH:~/.npm/bin
+      npm i -g release-it
+
+      if [[ "${BRANCH}" != "master" ]]; then
+          PRE_RELEASE="--preRelease=${BRANCH}"
+      fi
+
+
+      release-it patch ${PRE_RELEASE} \
+        --ci \
+        --no-npm \
+        --no-git.push \
+        --no-git.requireCleanWorkingDir \
+        --verbose \
+        -VV
+
+      git push --follow-tags -v
+
+      echo "IMAGE_VERSION=$(git describe --abbrev=0 --tags)" > ./env-config
+      echo "IMAGE_NAME=$(basename -s .git `git config --get remote.origin.url` | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g')" >> ./env-config
+
+      source ./env-config
+      if [[ -z "${IMAGE_VERSION}" ]]; then
+          echo "Error: IMAGE_VERSION not defined"
+          exit 1
+      fi
+      if [[ -z "${IMAGE_NAME}" ]]; then
+          echo "Error: IMAGE_NAME not defined"
+          exit 1
+      fi
+    command:
+    - /bin/bash
+    env:
+    - name: BRANCH
+      value: $(inputs.resources.source.revision)
+    - name: GIT_AUTH_USER
+      valueFrom:
+        secretKeyRef:
+          key: username
+          name: git-credentials
+          optional: true
+    - name: GIT_AUTH_PWD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: git-credentials
+          optional: true
+    image: $(inputs.params.js-image)
+    name: tag-release
+    resources: {}
+    workingDir: $(inputs.resources.source.path)
+  - args:
+    - -c
+    - |
+      set -e
+
+      . ./env-config
+
+      IMAGE_URL=$(outputs.resources.image.url)
+
+      REGISTRY_URL=$(echo $IMAGE_URL | awk -F / '{print $1}')
+      REGISTRY_NAMESPACE=$(echo $IMAGE_URL | awk -F / '{print $2}')
+
+      APP_IMAGE="${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_VERSION}"
+
+      buildah bud --tls-verify=$(inputs.params.TLSVERIFY) --format=docker -f $(inputs.params.DOCKERFILE) -t ${APP_IMAGE}  $(inputs.params.CONTEXT)
+      if [[ -n "${REGISTRY_USER}" ]] && [[ -n "${REGISTRY_PASSWORD}" ]]; then
+        buildah login -u "${REGISTRY_USER}" -p "${REGISTRY_PASSWORD}" "${REGISTRY_URL}"
+      fi
+      buildah push --tls-verify=$(inputs.params.TLSVERIFY) "${APP_IMAGE}" "docker://${APP_IMAGE}"
+    command:
+    - /bin/bash
+    env:
+    - name: REGISTRY_USER
+      valueFrom:
+        secretKeyRef:
+          key: REGISTRY_USER
+          name: ibmcloud-apikey
+          optional: true
+    - name: REGISTRY_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: APIKEY
+          name: ibmcloud-apikey
+          optional: true
+    image: $(inputs.params.BUILDER_IMAGE)
+    name: build
+    resources: {}
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /var/lib/containers
+      name: varlibcontainers
+    workingDir: $(inputs.resources.source.path)
+  volumes:
+  - emptyDir: {}
+    name: varlibcontainers
