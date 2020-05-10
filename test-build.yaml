@@ -1,0 +1,77 @@
+apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"tekton.dev/v1alpha1","kind":"Task","metadata":{"annotations":{},"labels":{"version":"1.2.0"},"name":"igc-java-gradle-test-v1-2-0","namespace":"tools"},"spec":{"inputs":{"params":[{"default":"gradle:jdk11","name":"gradle-image","type":"string"}],"resources":[{"name":"source","type":"git"}]},"stepTemplate":{"env":[{"name":"GRADLE_USER_HOME","value":"$(inputs.resources.source.path)"}]},"steps":[{"args":["-c","set -e\n./gradlew assemble --no-daemon\n"],"command":["/bin/bash"],"image":"$(inputs.params.gradle-image)","name":"build","workingdir":"$(inputs.resources.source.path)"},{"args":["-c","set -e\n./gradlew testClasses --no-daemon\n"],"command":["/bin/bash"],"image":"$(inputs.params.gradle-image)","name":"test","workingdir":"$(inputs.resources.source.path)"},{"args":["-c","set -e\nif $(./gradlew tasks --all | grep -Eq \"^sonarqube\"); then\n    echo \"SonarQube task found\"\nelse\n    echo \"Skipping SonarQube step, no task defined\"\n    exit 0\nfi\n\nif [[ -n \"${SONARQUBE_URL}\" ]] \u0026\u0026 [[ -n \"${SONARQUBE_USER}\" ]] \u0026\u0026 [[ -n \"${SONARQUBE_PASSWORD}\" ]]; then\n    ./gradlew -Dsonar.login=${SONARQUBE_USER} -Dsonar.password=${SONARQUBE_PASSWORD} -Dsonar.host.url=${SONARQUBE_URL} sonarqube\nelse \n    echo \"Skipping SonarQube step, configuration not provided\"\nfi\n"],"command":["/bin/bash"],"env":[{"name":"SONAR_USER_HOME","value":"$(inputs.resources.source.path)"}],"envFrom":[{"configMapRef":{"name":"sonarqube-config","optional":true}},{"secretRef":{"name":"sonarqube-access","optional":true}}],"image":"$(inputs.params.gradle-image)","name":"sonar-scan","workingdir":"$(inputs.resources.source.path)"}]}}
+  creationTimestamp: "2020-05-10T14:20:59Z"
+  generation: 1
+  labels:
+    version: 1.2.0
+  name: igc-java-gradle-test-v1-2-0
+  namespace: dev-gan2
+  resourceVersion: "8509431"
+  selfLink: /apis/tekton.dev/v1alpha1/namespaces/dev-gan2/tasks/igc-java-gradle-test-v1-2-0
+  uid: 692056e6-fb71-43fa-89f3-573021f7d234
+spec:
+  inputs:
+    params:
+    - default: gradle:jdk11
+      name: gradle-image
+      type: string
+    resources:
+    - name: source
+      type: git
+  stepTemplate:
+    env:
+    - name: GRADLE_USER_HOME
+      value: $(inputs.resources.source.path)
+    name: ""
+    resources: {}
+  steps:
+  - args:
+    - -c
+    - |
+      set -e
+      ./gradlew assemble --no-daemon
+    command:
+    - /bin/bash
+    image: $(inputs.params.gradle-image)
+    name: build
+    resources: {}
+    workingDir: $(inputs.resources.source.path)
+  - args:
+    - -c
+    - |
+      set -e
+      ./gradlew testClasses --no-daemon
+    command:
+    - /bin/bash
+    image: $(inputs.params.gradle-image)
+    name: test
+    resources: {}
+    workingDir: $(inputs.resources.source.path)
+  - args:
+    - -c
+    - "set -e\nif $(./gradlew tasks --all | grep -Eq \"^sonarqube\"); then\n    echo
+      \"SonarQube task found\"\nelse\n    echo \"Skipping SonarQube step, no task
+      defined\"\n    exit 0\nfi\n\nif [[ -n \"${SONARQUBE_URL}\" ]] && [[ -n \"${SONARQUBE_USER}\"
+      ]] && [[ -n \"${SONARQUBE_PASSWORD}\" ]]; then\n    ./gradlew -Dsonar.login=${SONARQUBE_USER}
+      -Dsonar.password=${SONARQUBE_PASSWORD} -Dsonar.host.url=${SONARQUBE_URL} sonarqube\nelse
+      \n    echo \"Skipping SonarQube step, configuration not provided\"\nfi\n"
+    command:
+    - /bin/bash
+    env:
+    - name: SONAR_USER_HOME
+      value: $(inputs.resources.source.path)
+    envFrom:
+    - configMapRef:
+        name: sonarqube-config
+        optional: true
+    - secretRef:
+        name: sonarqube-access
+        optional: true
+    image: $(inputs.params.gradle-image)
+    name: sonar-scan
+    resources: {}
+    workingDir: $(inputs.resources.source.path)
