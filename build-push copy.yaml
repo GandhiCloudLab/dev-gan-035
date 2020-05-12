@@ -119,4 +119,110 @@ spec:
     name: tag-release
     resources: {}
     workingDir: $(inputs.resources.source.path)
+  - args:
+    - -c
+    - |
+      set -e
 
+      . ./env-config
+
+      IMAGE_URL=$(outputs.resources.image.url)
+
+      REGISTRY_URL=$(echo $IMAGE_URL | awk -F / '{print $1}')
+      REGISTRY_NAMESPACE=$(echo $IMAGE_URL | awk -F / '{print $2}')
+
+      APP_IMAGE="${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_VERSION}"
+
+      buildah bud --tls-verify=$(inputs.params.TLSVERIFY) --format=docker -f $(inputs.params.DOCKERFILE) -t ${APP_IMAGE}  $(inputs.params.CONTEXT)
+      if [[ -n "${REGISTRY_USER}" ]] && [[ -n "${REGISTRY_PASSWORD}" ]]; then
+        buildah login -u "${REGISTRY_USER}" -p "${REGISTRY_PASSWORD}" "${REGISTRY_URL}"
+      fi
+      buildah push --tls-verify=$(inputs.params.TLSVERIFY) "${APP_IMAGE}" "docker://${APP_IMAGE}"
+    command:
+    - /bin/bash
+    env:
+    - name: REGISTRY_USER
+      valueFrom:
+        secretKeyRef:
+          key: REGISTRY_USER
+          name: ibmcloud-apikey
+          optional: true
+    - name: REGISTRY_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: APIKEY
+          name: ibmcloud-apikey
+          optional: true
+    image: $(inputs.params.BUILDER_IMAGE)
+    name: build
+    resources: {}
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /var/lib/containers
+      name: varlibcontainers
+    workingDir: $(inputs.resources.source.path)
+  - args:
+      - -c
+      - |
+        set -e
+  
+        . ./env-config
+  
+        IMAGE_URL=$(outputs.resources.image.url)
+  
+        REGISTRY_URL=$(echo $IMAGE_URL | awk -F / '{print $1}')
+        REGISTRY_NAMESPACE=$(echo $IMAGE_URL | awk -F / '{print $2}')
+  
+        APP_IMAGE="${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_VERSION}"
+  
+        export TRIVY_AUTH_URL=${REGISTRY_URL}
+        export TRIVY_USERNAME=${REGISTRY_USER}
+        export TRIVY_PASSWORD=${REGISTRY_PASSWORD}
+
+        echo "ScanImage Before Trivy image scanning.... $APP_IMAGE"
+
+        # Trivy scan
+        trivy ${APP_IMAGE}
+        # trivy --exit-code 1 --severity CRITICAL ${APP_IMAGE}
+
+        # Trivy scan result processing
+        my_exit_code=$?
+        echo "RESULT 1:--- $my_exit_code"
+
+        # Check scan results
+        if [ ${my_exit_code} == 1 ]; then
+            echo "Image scanning failed. Some vulnerabilities found"
+            exit 1;
+        else
+            echo "Image is scanned Successfully. No vulnerabilities found"
+        fi;
+
+        echo "ScanImage After Trivy image scanning....0"
+    command:
+      - /bin/sh
+      env:
+      - name: REGISTRY_USER
+        valueFrom:
+          secretKeyRef:
+            key: REGISTRY_USER
+            name: ibmcloud-apikey
+            optional: true
+      - name: REGISTRY_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            key: APIKEY
+            name: ibmcloud-apikey
+            optional: true
+      image: $(inputs.params.BUILDER_IMAGE)
+      name: build
+      resources: {}
+      securityContext:
+        privileged: true
+      volumeMounts:
+      - mountPath: /var/lib/containers
+        name: varlibcontainers
+      workingDir: $(inputs.resources.source.path)
+  volumes:
+  - emptyDir: {}
+    name: varlibcontainers
